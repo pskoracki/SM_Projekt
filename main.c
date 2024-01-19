@@ -45,6 +45,7 @@ ADC_HandleTypeDef hadc1;
 
 TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim3;
+TIM_HandleTypeDef htim4;
 
 UART_HandleTypeDef huart3;
 
@@ -70,6 +71,7 @@ static void MX_USB_OTG_FS_PCD_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_TIM1_Init(void);
+static void MX_TIM4_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -92,9 +94,10 @@ float kp_temp=1;
 int y_ref;
 int v=1000;
 int predkosc;
+int impulsy=0;
 void czujnik()
 {
-	HAL_GPIO_WritePin(TRIG_PORT, TRIG_PIN, GPIO_PIN_SET);  // pull the TRIG pin HIGH
+		  HAL_GPIO_WritePin(TRIG_PORT, TRIG_PIN, GPIO_PIN_SET);  // pull the TRIG pin HIGH
 		  __HAL_TIM_SET_COUNTER(&htim1, 0);
 		  while (__HAL_TIM_GET_COUNTER (&htim1) < 5);  // wait for 10 us
 		  HAL_GPIO_WritePin(TRIG_PORT, TRIG_PIN, GPIO_PIN_RESET);  // pull the TRIG pin low
@@ -113,7 +116,7 @@ void czujnik()
 }
 void silnik(uint16_t Distance, int y_ref, int v, int kp)
 {
-		  if(kp!=0){(Distance<y_ref && v<=1750 && v>=1000 )?stepCCV(256/8, v):stepCV(256/8, v);}
+		  if(kp!=0){(Distance<y_ref && v<=1750 && v>=1000 )?stepCCV(256/64, v):stepCV(256/64, v);}
 }
 
 
@@ -152,20 +155,21 @@ int main(void)
   MX_ADC1_Init();
   MX_TIM3_Init();
   MX_TIM1_Init();
+  MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
+
+  HAL_TIM_Encoder_Start(&htim4, TIM_CHANNEL_ALL);
   HAL_TIM_Base_Start(&htim1);
   HAL_GPIO_WritePin(GPIOB, TRIG_PIN, GPIO_PIN_RESET);  // pull the TRIG pin low
   microDelay(100);
+  HAL_GPIO_WritePin(GPIOB, LD1_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, LD2_Pin, GPIO_PIN_RESET);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-//	  HAL_ADC_Start(&hadc1);
-//	  	  HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY);
-//	  	  val=HAL_ADC_GetValue(&hadc1);
-//	  	  HAL_Delay(100);
 	  //------------------------------------------------------------------------------------------------------
 /*	  HAL_GPIO_WritePin(TRIG_PORT, TRIG_PIN, GPIO_PIN_SET);  // pull the TRIG pin HIGH
 	  __HAL_TIM_SET_COUNTER(&htim1, 0);
@@ -187,21 +191,26 @@ int main(void)
 //------------------------------------------------------------------------------------------------------
 	  //256- pół obrotu
 	  //128- 1/4 obrotu
-	  y_ref=10;
-	  kp_temp=abs(y_ref-Distance);
-	  (kp_temp<=20)?(kp=kp_temp):(kp=20);
-	  v=1750-37.5*kp;
-	  silnik(Distance, y_ref, v, kp);
+	  impulsy = __HAL_TIM_GET_COUNTER(&htim4);
+	  if(HAL_GPIO_ReadPin(GPIOC, MOTOR_L_Pin) == GPIO_PIN_SET){__HAL_TIM_SET_COUNTER(&htim4,0);HAL_GPIO_TogglePin(GPIOB, LD1_Pin);}
+	  y_ref=Distance*7;
+	  kp_temp=abs(y_ref-impulsy);
+	  (kp_temp<=54/2)?(kp=kp_temp):(kp=54/2);
+	  v=1750-(2.7*2*kp);
+	  silnik(impulsy, y_ref, v, kp);
+	  HAL_GPIO_TogglePin(GPIOB, LD2_Pin);
 //	  if(kp!=0){(Distance<y_ref && v<=1750 && v>=1000 )?stepCCV(256/8, v):stepCV(256/8, v);}
 //	  HAL_Delay(1);
 	  //PC0 i PC3
 //	  HAL_GPIO_ReadPin(GPIOx, GPIO_Pin)
 
-	  if(HAL_GPIO_ReadPin(GPIOC, MOTOR_L_Pin)==GPIO_PIN_SET){v+=50;}
-	  if(HAL_GPIO_ReadPin(GPIOC, MOTOR_R_Pin)==GPIO_PIN_SET){v-=50;}
+//	  if(HAL_GPIO_ReadPin(GPIOC, MOTOR_L_Pin)==GPIO_PIN_SET){v+=50;}
+//	  if(HAL_GPIO_ReadPin(GPIOC, MOTOR_R_Pin)==GPIO_PIN_SET){v-=50;}
+
+
 //	  stepCCV(1, v);
-	  HAL_GPIO_TogglePin(GPIOB, LD1_Pin);
 //	  changeMotorVel(&predkosc, v);
+//	  HAL_GPIO_TogglePin(GPIOB, LD1_Pin);
 
 
 //	  stepCCV(256*4, 100); //prawo
@@ -407,6 +416,55 @@ static void MX_TIM3_Init(void)
   /* USER CODE BEGIN TIM3_Init 2 */
 
   /* USER CODE END TIM3_Init 2 */
+
+}
+
+/**
+  * @brief TIM4 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM4_Init(void)
+{
+
+  /* USER CODE BEGIN TIM4_Init 0 */
+
+  /* USER CODE END TIM4_Init 0 */
+
+  TIM_Encoder_InitTypeDef sConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM4_Init 1 */
+
+  /* USER CODE END TIM4_Init 1 */
+  htim4.Instance = TIM4;
+  htim4.Init.Prescaler = 0;
+  htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim4.Init.Period = 65535;
+  htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  sConfig.EncoderMode = TIM_ENCODERMODE_TI1;
+  sConfig.IC1Polarity = TIM_ICPOLARITY_RISING;
+  sConfig.IC1Selection = TIM_ICSELECTION_DIRECTTI;
+  sConfig.IC1Prescaler = TIM_ICPSC_DIV1;
+  sConfig.IC1Filter = 0;
+  sConfig.IC2Polarity = TIM_ICPOLARITY_RISING;
+  sConfig.IC2Selection = TIM_ICSELECTION_DIRECTTI;
+  sConfig.IC2Prescaler = TIM_ICPSC_DIV1;
+  sConfig.IC2Filter = 0;
+  if (HAL_TIM_Encoder_Init(&htim4, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim4, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM4_Init 2 */
+
+  /* USER CODE END TIM4_Init 2 */
 
 }
 
