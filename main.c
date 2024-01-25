@@ -64,10 +64,26 @@ PCD_HandleTypeDef hpcd_USB_OTG_FS;
 //#define ECHO_PIN GPIO_PIN_10
 //#define ECHO_PORT GPIOB
 
+char buffer[10];
+struct Data2 {
+	char impulsy[10];
+	char y_ref[10];
+	char predkosc[10];
+	char uchyb[10];
+};
+
 uint32_t pMillis;
 uint32_t Value1 = 0;
 uint32_t Value2 = 0;
 uint16_t Distance  = 0;  // cm
+uint16_t Distance_prev  = 0;
+int y_ref;
+int v=1000;
+int impulsy=0;
+int impulsy_prev=0;
+float u_ster;
+float uchyb;
+int temp=0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -90,28 +106,13 @@ void microDelay (uint16_t delay)
   __HAL_TIM_SET_COUNTER(&htim1, 0);
   while (__HAL_TIM_GET_COUNTER(&htim1) < delay);
 }
-//void changeMotorVel(int *ptr, int val)
-//{
-//	*ptr=val;
-//}
 
-float val=0;
-float kp=1;
-float kp_temp=1;
-int y_ref;
-int v=1000;
-int predkosc;
-int impulsy=0;
-int errorr=0;
-uint32_t errror;
-int pierwszy=0;
-float u_ster;
 
 void czujnik()
 {
 		  HAL_GPIO_WritePin(TRIG_PORT, TRIG_PIN, GPIO_PIN_SET);  // pull the TRIG pin HIGH
 		  __HAL_TIM_SET_COUNTER(&htim1, 0);
-		  while (__HAL_TIM_GET_COUNTER (&htim1) < 5);  // wait for 10 us
+		  while (__HAL_TIM_GET_COUNTER (&htim1) < 5);  // wait for 5 us
 		  HAL_GPIO_WritePin(TRIG_PORT, TRIG_PIN, GPIO_PIN_RESET);  // pull the TRIG pin low
 
 		  pMillis = HAL_GetTick(); // used this to avoid infinite while loop  (for timeout)
@@ -173,7 +174,7 @@ char text[MAX_LENGTH];
   /* USER CODE BEGIN 2 */
   lcd_init ();
   PIDController pid1;
-  PID_Init(&pid1, 1.0, 0.0, 0.1, 0);
+  PID_Init(&pid1, 1.2, 0.0001, 0.1, 0);
 
 
   HAL_TIM_Encoder_Start(&htim3, TIM_CHANNEL_ALL);
@@ -185,95 +186,70 @@ char text[MAX_LENGTH];
 
 
   //dojazd do góry i reset enkodera
-  while(!HAL_GPIO_ReadPin(KRANCOWKA_GPIO_Port, KRANCOWKA_Pin)){stepCV(256/64, 1750);}
-  impulsy=1;
+  	  lcd_clear ();
+  while(!HAL_GPIO_ReadPin(
+	  KRANCOWKA_GPIO_Port, KRANCOWKA_Pin)){v=1750; stepCV(256/64, v);
+	  lcd_put_cur(1, 0);
+	  sprintf((char*)text, "Kalibracja...");
+	  lcd_send_string(text);}
+
+  struct Data2 myData2;
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+
 	  if(HAL_GPIO_ReadPin(KRANCOWKA_GPIO_Port, KRANCOWKA_Pin)){__HAL_TIM_SET_COUNTER(&htim3, 0);}
 
-	  //------------------------------------------------------------------------------------------------------
-/*	  HAL_GPIO_WritePin(TRIG_PORT, TRIG_PIN, GPIO_PIN_SET);  // pull the TRIG pin HIGH
-	  __HAL_TIM_SET_COUNTER(&htim1, 0);
-	  while (__HAL_TIM_GET_COUNTER (&htim1) < 10);  // wait for 10 us
-	  HAL_GPIO_WritePin(TRIG_PORT, TRIG_PIN, GPIO_PIN_RESET);  // pull the TRIG pin low
-
-	  pMillis = HAL_GetTick(); // used this to avoid infinite while loop  (for timeout)
-	  // wait for the echo pin to go high
-	  while (!(HAL_GPIO_ReadPin (ECHO_PORT, ECHO_PIN)) && pMillis + 10 >  HAL_GetTick());
-	  Value1 = __HAL_TIM_GET_COUNTER (&htim1);
-
-	  pMillis = HAL_GetTick(); // used this to avoid infinite while loop (for timeout)
-	  // wait for the echo pin to go low
-	  while ((HAL_GPIO_ReadPin (ECHO_PORT, ECHO_PIN)) && pMillis + 50 > HAL_GetTick());
-	  Value2 = __HAL_TIM_GET_COUNTER (&htim1);
-
-	  Distance = (Value2-Value1)* 0.034/2;		*/
 	  czujnik();
-//------------------------------------------------------------------------------------------------------
-	  //256- pół obrotu
-	  //128- 1/4 obrotu
 	  impulsy = __HAL_TIM_GET_COUNTER(&htim3);
 
-	  if(HAL_GPIO_ReadPin(GPIOC, MOTOR_L_Pin) == GPIO_PIN_SET){__HAL_TIM_SET_COUNTER(&htim3,0);HAL_GPIO_TogglePin(GPIOB, LD1_Pin);}
 	  y_ref=Distance*7;
 
 	  u_ster=PID_Update(&pid1, y_ref, impulsy);
-	  kp_temp=abs(y_ref-impulsy);
-//	  (kp_temp<=54/2)?(kp=kp_temp):(kp=54/2);
-	  (u_ster<=54/2)?(kp=u_ster):(kp=54/2);
-	  v=1750-(2.7*2*kp);
-//	  if(HAL_GPIO_ReadPin(USER_Btn_GPIO_Port, USER_Btn_Pin)){stepCCV(256/64, 1750);}
-	  silnik(impulsy, y_ref, v, kp);
+	  (u_ster<=37)?(u_ster=u_ster):(u_ster=37);
+	  (u_ster<0)?(u_ster=-u_ster):(u_ster=u_ster);
+
+	  v=1750-(4*(37-u_ster));
+
+	  silnik(impulsy, y_ref, v, u_ster);
 	  HAL_GPIO_TogglePin(GPIOB, LD2_Pin);
-//	  if(kp!=0){(Distance<y_ref && v<=1750 && v>=1000 )?stepCCV(256/8, v):stepCV(256/8, v);}
-//	  HAL_Delay(1);
-	  //PC0 i PC3
-//	  HAL_GPIO_ReadPin(GPIOx, GPIO_Pin)
 
-//	  if(HAL_GPIO_ReadPin(GPIOC, MOTOR_L_Pin)==GPIO_PIN_SET){v+=50;}
-//	  if(HAL_GPIO_ReadPin(GPIOC, MOTOR_R_Pin)==GPIO_PIN_SET){v-=50;}
-
-
-//	  stepCCV(1, v);
-//	  changeMotorVel(&predkosc, v);
-//	  HAL_GPIO_TogglePin(GPIOB, LD1_Pin);
-
-
-//	  stepCCV(256*4, 100); //prawo
-//	  stepCV(256, 100); //lewo
 	  //------------------------------------------------------------------------------------------------------
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
 	   if(HAL_GPIO_ReadPin(KRANCOWKA_GPIO_Port, KRANCOWKA_Pin)){HAL_GPIO_TogglePin(LD1_GPIO_Port,LD1_Pin);}
 
-	  /*
-	  lcd_clear();
+	   uchyb=((y_ref*1.0-impulsy*1.0)/7);
+	   if(uchyb<0){uchyb=-uchyb;}
+	   if(impulsy!=impulsy_prev || Distance!=Distance_prev){
+	   lcd_clear();
 	   lcd_put_cur(0, 0);
-//	   sprintf((char*)text, "Odl. %.ld m", Distance);
-	   sprintf((char*)text, "test1\n");
+	   sprintf((char*)text, "Odl. %.ld cm", Distance);
 	   lcd_send_string(text);
 	   lcd_put_cur(1, 0);
-//	   sprintf((char*)text, "Enc. %ld XD", impulsy);
-	   sprintf((char*)text, "test2\n");
+	   sprintf((char*)text, "Uchyb:  %0.2f cm", uchyb);
 	   lcd_send_string(text);
+	   HAL_GPIO_TogglePin(LD1_GPIO_Port,LD1_Pin);}
+	   Distance_prev=Distance;
+	   impulsy_prev=impulsy;
 
-		  HAL_UART_Transmit(&huart3, "\n Hello world \r\n", (COUNTOF(text)-1), 50);
-       printf("Error:\n");
-		  if (HAL_I2C_GetError(&hi2c4) != HAL_I2C_ERROR_NONE)
-		          {
-		              // Obsługa błędów, np. wyświetlenie informacji diagnostycznych
-			  HAL_GPIO_TogglePin(LD3_GPIO_Port, LD3_Pin);
-			  errror=hi2c4.ErrorCode;
-		              printf("I2C Error: %lu\n", hi2c4.ErrorCode);
-		              // Dodatkowe kroki obsługi błędów, jeśli to konieczne
-		          }
 
-		          */
+	      sprintf(myData2.impulsy, "%d; ", impulsy);
+	      sprintf(myData2.predkosc, "%d; ", v);
+	      sprintf(myData2.uchyb, "%d; ", uchyb);
+	      sprintf(myData2.y_ref, "%d;\n// ", y_ref);
+	      HAL_UART_Transmit(&huart3, (uint8_t*)myData2.impulsy, strlen(myData2.impulsy), 50);
+	      HAL_UART_Transmit(&huart3, (uint8_t*)myData2.predkosc, strlen(myData2.predkosc), 50);
+	      HAL_UART_Transmit(&huart3, (uint8_t*)myData2.uchyb, strlen(myData2.uchyb), 50);
+	      HAL_UART_Transmit(&huart3, (uint8_t*)myData2.y_ref, strlen(myData2.y_ref), 50);
+
+
+
 
   }
   /* USER CODE END 3 */
